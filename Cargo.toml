@@ -1,0 +1,12 @@
+[package]
+name = "rustracts"
+version = "0.0.1"
+authors = ["hyyking <leoduret@outlook.com>"]
+edition = "2018"
+
+
+[dependencies]
+futures-preview = "0.3.0-alpha.19"
+
+[dev-dependencies]
+tokio = "0.2.0-alpha.6"
