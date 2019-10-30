@@ -1,10 +1,6 @@
-use std::sync::{Arc, Mutex};
+#![deny(clippy::all)]
 
-pub trait ContractContext: Copy {
-    fn is_valid(&self) -> bool {
-        true
-    }
-}
+use std::sync::{Arc, Mutex};
 
 pub trait Contract: Sized {
     type Output;
@@ -26,6 +22,8 @@ pub enum Status<R> {
     Voided,
 }
 
+pub mod context;
 mod futures;
 
 pub use crate::futures::FuturesContract;
+pub use context::ContractContext;

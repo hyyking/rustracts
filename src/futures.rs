@@ -11,7 +11,7 @@ use crate::{Contract, ContractContext, ContractExt, Status};
 #[must_use = "contracts do nothing unless polled or awaited"]
 pub struct FuturesContract<F, C, R>
 where
-    C: ContractContext,
+    C: ContractContext + Copy,
     F: FnOnce(C) -> R + Copy,
 {
     creation: Instant,
@@ -22,7 +22,7 @@ where
 
 impl<F, C, R> FuturesContract<F, C, R>
 where
-    C: ContractContext,
+    C: ContractContext + Copy,
     F: FnOnce(C) -> R + Copy,
 {
     pub fn new(expire: Duration, context: C, on_exe: F) -> Self {
@@ -37,7 +37,7 @@ where
 
 impl<F, C, R> Contract for FuturesContract<F, C, R>
 where
-    C: ContractContext,
+    C: ContractContext + Copy,
     F: FnOnce(C) -> R + Copy,
 {
     type Output = R;
@@ -62,7 +62,7 @@ where
 
 impl<F, C, R> ContractExt<C> for FuturesContract<F, C, R>
 where
-    C: ContractContext,
+    C: ContractContext + Copy,
     F: FnOnce(C) -> R + Copy,
 {
     fn get_context(&self) -> Arc<Mutex<C>> {
@@ -72,7 +72,7 @@ where
 
 impl<F, C, R> Future for FuturesContract<F, C, R>
 where
-    C: ContractContext,
+    C: ContractContext + Copy,
     F: FnOnce(C) -> R + Copy,
 {
     type Output = Status<<Self as Contract>::Output>;
@@ -95,20 +95,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::FuturesContract;
-    use crate::{ContractContext, ContractExt, Status};
+    use crate::context::cmp::GtContext;
+    use crate::{ContractExt, Status};
 
     use std::time::Duration;
-
-    #[derive(Clone, Copy)]
-    struct CustomContext(usize);
-    impl ContractContext for CustomContext {
-        // Contract is valid under condition
-        fn is_valid(&self) -> bool {
-            self.0 > 2
-        }
-    }
-
-    impl ContractContext for usize {} // Contract is always valid
 
     #[test]
     fn simple_contract() {
@@ -124,16 +114,16 @@ mod tests {
 
     #[test]
     fn voided_contract() {
-        let context = CustomContext(3);
+        let context = GtContext(3, 2); // Context is true if self.0 > self.1
 
-        let c = FuturesContract::new(Duration::from_secs(10), context, |con| -> usize {
+        let c = FuturesContract::new(Duration::from_secs(4), context, |con| -> usize {
             con.0 + 5
         });
 
         let handle = std::thread::spawn({
             let mcontext = c.get_context();
             move || {
-                (*mcontext.lock().unwrap()).0 = 1;
+                (*mcontext.lock().unwrap()).0 = 1; // Modify context before contract ends
             }
         });
 
@@ -148,7 +138,8 @@ mod tests {
 
     #[test]
     fn updated_contract() {
-        let context = CustomContext(3);
+        let context = GtContext(3, 2); // Context is valid if self.0 > self.1
+
         let c = FuturesContract::new(Duration::from_secs(1), context, |con| -> usize {
             con.0 + 5
         });
