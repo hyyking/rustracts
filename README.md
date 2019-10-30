@@ -1,20 +1,20 @@
-# *rustracts*
+# *rustracts* [![Latest Version](https://img.shields.io/crates/v/rustracts.svg)](https://crates.io/crates/rustracts) [![Rust Documentation](https://docs.rs/rustracts/badge.svg)](https://docs.rs/rustracts)
 Rust crate for voidable insurance contracts over a context in async/await rust
 
 ```toml
-rustracts = "0.0.1"
+rustracts = "0.1.0-alpha.2"
 ```
 
 ## Features
 
 ### Available
 
-- FuturesContract: Will produce a value at the end of it's lifetime if the contract is not voided
+- FuturesContract: Will produce a value at expiration if the contract was not voided
+- OnKillContract: Will produce a value if the context is invalidated
 
 ### To Come
 
-- OptionContract: produce value if the secondary context has realised
-- OnKillContract: produce a value if the contract is killed
+- OptionContract: Will produce value at expiration if the secondary context has realised and the contract was not voided before
 
 ## Examples
 
