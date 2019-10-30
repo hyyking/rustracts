@@ -1,10 +1,11 @@
 [package]
 name = "rustracts"
-version = "0.0.1"
+version = "0.1.0-alpha.2"
 authors = ["hyyking <leoduret@outlook.com>"]
 edition = "2018"
 
 license = "MIT"
+readme = "README.md"
 
 description = "Rust crate for cancellable time based contracts in async/await"
 

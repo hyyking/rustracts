@@ -54,9 +54,8 @@ where
         let context = self.context.lock().unwrap().clone();
         Status::Completed((self.on_exe.clone())(context))
     }
-
     fn void(&self) -> Self::Output {
-        Status::Voided
+        Status::Terminated
     }
 }
 
@@ -78,12 +77,11 @@ where
     type Output = Status<R>;
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        let mv = (self.is_expired(), self.is_valid());
-
         // wakes up 4 times during it's lifetime to check if it should be voided
         std::thread::sleep(self.expire / 4);
         cx.waker().clone().wake();
 
+        let mv = (self.is_expired(), self.is_valid());
         match mv {
             (true, true) => Poll::Ready(self.execute()),
             (false, true) => Poll::Pending,
@@ -101,7 +99,7 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn simple_contract() {
+    fn fut_simple_contract() {
         let context: usize = 3;
         let c = FuturesContract::new(Duration::from_secs(1), context, |con| -> usize { con + 5 });
 
@@ -113,7 +111,7 @@ mod tests {
     }
 
     #[test]
-    fn voided_contract() {
+    fn fut_voided_contract() {
         let context = GtContext(3, 2); // Context is true if self.0 > self.1
 
         let c = FuturesContract::new(Duration::from_secs(4), context, |con| -> usize {
@@ -137,8 +135,8 @@ mod tests {
     }
 
     #[test]
-    fn updated_contract() {
-        let context = GtContext(3, 2); // Context is valid if self.0 > self.1
+    fn fut_updated_contract() {
+        let context = GtContext(3, 2); // Context is valid while self.0 > self.1
 
         let c = FuturesContract::new(Duration::from_secs(1), context, |con| -> usize {
             con.0 + 5
