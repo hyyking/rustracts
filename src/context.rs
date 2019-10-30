@@ -10,20 +10,22 @@ impl ContractContext for bool {
     }
 }
 
-impl ContractContext for usize {}
 impl ContractContext for u8 {}
 impl ContractContext for u16 {}
 impl ContractContext for u32 {}
 impl ContractContext for u64 {}
+impl ContractContext for u128 {}
+impl ContractContext for usize {}
 
-impl ContractContext for isize {}
 impl ContractContext for i8 {}
 impl ContractContext for i16 {}
 impl ContractContext for i32 {}
 impl ContractContext for i64 {}
+impl ContractContext for i128 {}
+impl ContractContext for isize {}
 
-/// Empty context to use if you want contract to fullfill everytime
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+/// Empty context to use if you want non-voidable contracts
+#[derive(Copy, Clone)]
 pub struct DefaultContext;
 
 impl ContractContext for DefaultContext {}
@@ -45,7 +47,6 @@ pub mod cmp {
     use super::ContractContext;
 
     /// Context to compare the equality of two elements
-    #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
     pub struct EqContext<A, B>(pub A, pub B);
 
     impl<A, B> ContractContext for EqContext<A, B>
@@ -58,7 +59,7 @@ pub mod cmp {
     }
 
     /// Context to compare the inequality of two elements
-    #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
+    #[derive(Copy, Clone)]
     pub struct NqContext<A, B>(pub A, pub B);
 
     impl<A, B> ContractContext for NqContext<A, B>
@@ -71,7 +72,7 @@ pub mod cmp {
     }
 
     /// Context to compare the less than ordering of two elements
-    #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
+    #[derive(Copy, Clone)]
     pub struct LtContext<A>(pub A, pub A);
 
     impl<A> ContractContext for LtContext<A>
@@ -84,7 +85,7 @@ pub mod cmp {
     }
 
     /// Context to compare the less or equal ordering of two elements
-    #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
+    #[derive(Copy, Clone)]
     pub struct LeContext<A>(pub A, pub A);
 
     impl<A> ContractContext for LeContext<A>
@@ -110,7 +111,7 @@ pub mod cmp {
     }
 
     /// Context to compare the greater or equal ordering of two elements
-    #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
+    #[derive(Copy, Clone)]
     pub struct GeContext<A>(pub A, pub A);
 
     impl<A> ContractContext for GeContext<A>

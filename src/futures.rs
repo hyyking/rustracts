@@ -1,18 +1,20 @@
-use futures::{
-    future::Future,
-    task::{Context, Poll},
-};
-
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::{Contract, ContractContext, ContractExt, Status};
 
+use futures::{
+    future::Future,
+    task::{Context, Poll},
+};
+
+/// A FuturesContract produces a value from context at it's expire time if it has not been voided
+/// before.
 #[must_use = "contracts do nothing unless polled or awaited"]
 pub struct FuturesContract<F, C, R>
 where
-    C: ContractContext + Copy,
-    F: FnOnce(C) -> R + Copy,
+    C: ContractContext + Clone,
+    F: FnOnce(C) -> R + Clone,
 {
     creation: Instant,
     expire: Duration,
@@ -22,8 +24,8 @@ where
 
 impl<F, C, R> FuturesContract<F, C, R>
 where
-    C: ContractContext + Copy,
-    F: FnOnce(C) -> R + Copy,
+    C: ContractContext + Clone,
+    F: FnOnce(C) -> R + Clone,
 {
     pub fn new(expire: Duration, context: C, on_exe: F) -> Self {
         Self {
@@ -37,11 +39,9 @@ where
 
 impl<F, C, R> Contract for FuturesContract<F, C, R>
 where
-    C: ContractContext + Copy,
-    F: FnOnce(C) -> R + Copy,
+    C: ContractContext + Clone,
+    F: FnOnce(C) -> R + Clone,
 {
-    type Output = R;
-
     fn is_valid(&self) -> bool {
         (*self.context.lock().unwrap()).is_valid()
     }
@@ -50,20 +50,20 @@ where
         Instant::now().duration_since(self.creation) > self.expire
     }
 
-    fn execute(&self) -> Status<Self::Output> {
-        let context = self.context.lock().unwrap();
-        Status::Completed((self.on_exe)(*context))
+    fn execute(&self) -> Self::Output {
+        let context = self.context.lock().unwrap().clone();
+        Status::Completed((self.on_exe.clone())(context))
     }
 
-    fn void(&self) -> Status<Self::Output> {
+    fn void(&self) -> Self::Output {
         Status::Voided
     }
 }
 
 impl<F, C, R> ContractExt<C> for FuturesContract<F, C, R>
 where
-    C: ContractContext + Copy,
-    F: FnOnce(C) -> R + Copy,
+    C: ContractContext + Clone,
+    F: FnOnce(C) -> R + Clone,
 {
     fn get_context(&self) -> Arc<Mutex<C>> {
         self.context.clone()
@@ -72,10 +72,10 @@ where
 
 impl<F, C, R> Future for FuturesContract<F, C, R>
 where
-    C: ContractContext + Copy,
-    F: FnOnce(C) -> R + Copy,
+    C: ContractContext + Clone,
+    F: FnOnce(C) -> R + Clone,
 {
-    type Output = Status<<Self as Contract>::Output>;
+    type Output = Status<R>;
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         let mv = (self.is_expired(), self.is_valid());
