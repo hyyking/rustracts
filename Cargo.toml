@@ -4,6 +4,17 @@ version = "0.0.1"
 authors = ["hyyking <leoduret@outlook.com>"]
 edition = "2018"
 
+licence = "MIT"
+
+description = "Rust crate for cancellable time based contracts in async/await"
+
+homepage = "https://github.com/hyyking/rustracts"
+repository = "https://github.com/hyyking/rustracts"
+documentation="https://docs.rs/rustracts"
+
+keywords = ["async", "await", "contract", "futures"]
+categories = ["futures", "async/await", "contracts"]
+
 
 [dependencies]
 futures-preview = "0.3.0-alpha.19"
