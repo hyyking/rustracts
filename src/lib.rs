@@ -39,10 +39,11 @@ pub enum Status<R> {
     Completed(R),
 
     /// Contract has ended and did not produce a value.
-    Voided,
+    Terminated,
 }
 
 mod futures;
+mod onkill;
 
 /// Implementation of contexes to put in a contract.
 pub mod context;
@@ -50,6 +51,9 @@ pub mod context;
 /// Trait that defines a valid context for a contract.
 pub use context::ContractContext;
 
-/// Futures contract produces a value at a point in the future using the available context if it
+/// FuturesContract produces a value at a point in the future using the available context if it
 /// has not been voided before.
 pub use crate::futures::FuturesContract;
+
+/// Permanent contract that produces a value when it is voided
+pub use crate::onkill::OnKillContract;

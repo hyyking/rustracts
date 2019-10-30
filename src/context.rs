@@ -47,6 +47,7 @@ pub mod cmp {
     use super::ContractContext;
 
     /// Context to compare the equality of two elements
+    #[derive(Copy, Clone)]
     pub struct EqContext<A, B>(pub A, pub B);
 
     impl<A, B> ContractContext for EqContext<A, B>
