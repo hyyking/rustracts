@@ -10,7 +10,7 @@ use futures::{
     task::{Context, Poll},
 };
 
-/// Permanent contract that produces a value when it is voided
+/// Permanent contract that produces a value when it is voided by the underlying context
 #[must_use = "contracts do nothing unless polled or awaited"]
 pub struct OnKillContract<F, C, R>
 where

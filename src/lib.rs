@@ -48,7 +48,7 @@ mod onkill;
 /// Implementation of contexes to put in a contract.
 pub mod context;
 
-/// Executor for processes
+/// Contains contract wakers.
 pub mod executor;
 
 /// Trait that defines a valid context for a contract.
@@ -58,5 +58,5 @@ pub use context::ContractContext;
 /// has not been voided before.
 pub use crate::futures::FuturesContract;
 
-/// Permanent contract that produces a value when it is voided
+/// Permanent contract that produces a value when it is voided by it's context.
 pub use crate::onkill::OnKillContract;

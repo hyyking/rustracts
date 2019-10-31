@@ -3,7 +3,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-/// Message for a WaitThread
+/// Wait thread can either be scheduled a park or be ended.
 pub enum WaitMessage {
     WakeIn {
         waker: futures::task::Waker,
@@ -12,13 +12,15 @@ pub enum WaitMessage {
     End,
 }
 
-/// Thread that will wake an underlying waker after parking for a duration
+/// Thread that will wake an underlying Waker after parking for a duration. Or can be killed to
+/// never wake a Waker again.
 pub struct WaitThread {
     sender: Sender<WaitMessage>,
     handle: Option<JoinHandle<()>>,
 }
 
 impl WaitThread {
+    /// Create a new WaitThread
     pub fn new() -> Self {
         let (sender, receiver) = channel();
         Self {
@@ -37,8 +39,15 @@ impl WaitThread {
             })),
         }
     }
+    /// Create a copy of the sender
     pub fn sender(&self) -> Sender<WaitMessage> {
         self.sender.clone()
+    }
+}
+
+impl Default for WaitThread {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -1,4 +1,7 @@
+/// A Contract context can be polled to check wether it's conditions are met. By default contexes
+/// are always true.
 pub trait ContractContext {
+    /// Check wether the clauses are still met.
     fn is_valid(&self) -> bool {
         true
     }
@@ -24,7 +27,7 @@ impl ContractContext for i64 {}
 impl ContractContext for i128 {}
 impl ContractContext for isize {}
 
-/// Empty context to use if you want non-voidable contracts
+/// Empty context to use if you want non-voidable contracts that produce no value.
 #[derive(Copy, Clone)]
 pub struct DefaultContext;
 
@@ -42,7 +45,7 @@ impl DefaultContext {
     }
 }
 
-/// Common compare contexes
+/// Generic comparaison contexes
 pub mod cmp {
     use super::ContractContext;
 
@@ -99,7 +102,7 @@ pub mod cmp {
     }
 
     /// Context to compare the greater than ordering of two elements
-    #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
+    #[derive(Copy, Clone)]
     pub struct GtContext<A>(pub A, pub A);
 
     impl<A> ContractContext for GtContext<A>

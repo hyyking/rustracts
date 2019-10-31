@@ -9,7 +9,7 @@ use futures::{
     task::{Context, Poll},
 };
 
-/// A FuturesContract produces a value from context at it's expire time if it has not been voided
+/// A FuturesContract produces a value from it's context at it's expire time if it has not been voided
 /// before.
 #[must_use = "contracts do nothing unless polled or awaited"]
 pub struct FuturesContract<F, C, R>
