@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::context::ContractContext;
+use crate::executor::{WaitMessage, WaitThread};
 use crate::{Contract, ContractExt, Status};
 
 use futures::{
@@ -16,6 +17,7 @@ where
     C: ContractContext + Clone,
     F: FnOnce(C) -> R + Clone,
 {
+    runner: WaitThread,
     interval: Duration,
     context: Arc<Mutex<C>>,
     on_void: F,
@@ -26,9 +28,10 @@ where
     C: ContractContext + Clone,
     F: FnOnce(C) -> R + Clone,
 {
-    pub fn new(interval: Duration, context: C, on_void: F) -> Self {
+    pub fn new(context: C, on_void: F) -> Self {
         Self {
-            interval,
+            runner: WaitThread::new(),
+            interval: Duration::new(0, 1000),
             context: Arc::new(Mutex::new(context)),
             on_void,
         }
@@ -78,8 +81,13 @@ where
     type Output = Status<R>;
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        std::thread::sleep(self.interval);
-        cx.waker().clone().wake();
+        self.runner
+            .sender()
+            .send(WaitMessage::WakeIn {
+                waker: cx.waker().clone(),
+                duration: self.interval,
+            })
+            .unwrap();
 
         if !self.is_valid() {
             Poll::Ready(self.void())
@@ -95,13 +103,11 @@ mod tests {
     use crate::context::cmp::EqContext;
     use crate::{ContractExt, Status};
 
-    use std::time::Duration;
-
     #[test]
     fn okc_contract() {
         let context = EqContext(2, 2); // Context which is valid while self.0 == self.1
 
-        let c = OnKillContract::new(Duration::new(1, 0), context, |con| -> usize { con.0 + 5 });
+        let c = OnKillContract::new(context, |con| -> usize { con.0 + 5 });
 
         let handle = std::thread::spawn({
             let mcontext = c.get_context();

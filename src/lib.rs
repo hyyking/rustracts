@@ -48,6 +48,9 @@ mod onkill;
 /// Implementation of contexes to put in a contract.
 pub mod context;
 
+/// Executor for processes
+pub mod executor;
+
 /// Trait that defines a valid context for a contract.
 pub use context::ContractContext;
 

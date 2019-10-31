@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::executor::{WaitMessage, WaitThread};
 use crate::{Contract, ContractContext, ContractExt, Status};
 
 use futures::{
@@ -16,6 +17,7 @@ where
     C: ContractContext + Clone,
     F: FnOnce(C) -> R + Clone,
 {
+    runner: WaitThread,
     creation: Instant,
     expire: Duration,
     context: Arc<Mutex<C>>,
@@ -29,6 +31,7 @@ where
 {
     pub fn new(expire: Duration, context: C, on_exe: F) -> Self {
         Self {
+            runner: WaitThread::new(),
             creation: Instant::now(),
             expire,
             context: Arc::new(Mutex::new(context)),
@@ -77,9 +80,13 @@ where
     type Output = Status<R>;
 
     fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        // wakes up 4 times during it's lifetime to check if it should be voided
-        std::thread::sleep(self.expire / 4);
-        cx.waker().clone().wake();
+        self.runner
+            .sender()
+            .send(WaitMessage::WakeIn {
+                waker: cx.waker().clone(),
+                duration: self.expire / 10,
+            })
+            .unwrap();
 
         let mv = (self.is_expired(), self.is_valid());
         match mv {
