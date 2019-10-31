@@ -2,7 +2,7 @@
 Rust crate for voidable insurance contracts over a context in async/await rust
 
 ```toml
-rustracts = "0.1.0-alpha.2"
+rustracts = "0.1.0-alpha.3"
 ```
 
 ## Features
