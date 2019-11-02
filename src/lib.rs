@@ -44,7 +44,9 @@ pub enum Status<R> {
 }
 
 mod contracts;
-mod time;
+
+/// Time utilities
+pub mod time;
 
 /// Implementation of contexes to put in a contract.
 pub mod context;

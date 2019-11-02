@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::context::ContractContext;
 use crate::sync::{WaitMessage, WaitThread};
-use crate::time::ContractTimer;
+use crate::time::Timer;
 use crate::{Contract, ContractExt, Status};
 
 use futures::{
@@ -20,7 +20,7 @@ where
     F: FnOnce((VC, PC)) -> R + Clone,
 {
     runner: WaitThread,
-    timer: ContractTimer,
+    timer: Timer,
 
     void_context: Arc<Mutex<VC>>,
     prod_context: Arc<Mutex<PC>>,
@@ -37,7 +37,7 @@ where
     pub fn new(expire: Duration, void_c: VC, prod_c: PC, on_void: F) -> Self {
         Self {
             runner: WaitThread::new(),
-            timer: ContractTimer::new(expire),
+            timer: Timer::new(expire),
             void_context: Arc::new(Mutex::new(void_c)),
             prod_context: Arc::new(Mutex::new(prod_c)),
             on_void,
