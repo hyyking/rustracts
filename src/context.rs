@@ -1,17 +1,21 @@
-/// A Contract context can be polled to check wether it's conditions are met. By default contexes
-/// are always true.
+//! Contexes are elements that can be polled to verify wether their inner state is still considered
+//! valid or not.
+
+/// Trait for Contexes
 pub trait ContractContext {
-    /// Check wether the clauses are still met.
-    fn is_valid(&self) -> bool {
+    /// Check wether the clauses are still met, true by default.
+    fn poll_valid(&self) -> bool {
         true
     }
 }
 
 impl ContractContext for bool {
-    fn is_valid(&self) -> bool {
+    fn poll_valid(&self) -> bool {
         *self
     }
 }
+
+impl ContractContext for () {}
 
 impl ContractContext for u8 {}
 impl ContractContext for u16 {}
@@ -57,7 +61,7 @@ pub mod cmp {
     where
         A: PartialEq<B>,
     {
-        fn is_valid(&self) -> bool {
+        fn poll_valid(&self) -> bool {
             self.0 == self.1
         }
     }
@@ -70,7 +74,7 @@ pub mod cmp {
     where
         A: PartialEq<B>,
     {
-        fn is_valid(&self) -> bool {
+        fn poll_valid(&self) -> bool {
             self.0 != self.1
         }
     }
@@ -83,7 +87,7 @@ pub mod cmp {
     where
         A: Ord,
     {
-        fn is_valid(&self) -> bool {
+        fn poll_valid(&self) -> bool {
             self.0 < self.1
         }
     }
@@ -96,7 +100,7 @@ pub mod cmp {
     where
         A: Ord,
     {
-        fn is_valid(&self) -> bool {
+        fn poll_valid(&self) -> bool {
             self.0 <= self.1
         }
     }
@@ -109,7 +113,7 @@ pub mod cmp {
     where
         A: Ord,
     {
-        fn is_valid(&self) -> bool {
+        fn poll_valid(&self) -> bool {
             self.0 > self.1
         }
     }
@@ -122,7 +126,7 @@ pub mod cmp {
     where
         A: Ord,
     {
-        fn is_valid(&self) -> bool {
+        fn poll_valid(&self) -> bool {
             self.0 > self.1
         }
     }

@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use crate::context::ContractContext;
-use crate::executor::{WaitMessage, WaitThread};
+use crate::sync::{WaitMessage, WaitThread};
 use crate::{Contract, ContractExt, Status};
 
 use futures::{
@@ -18,8 +18,9 @@ where
     F: FnOnce(C) -> R + Clone,
 {
     runner: WaitThread,
-    interval: Duration,
+
     context: Arc<Mutex<C>>,
+
     on_void: F,
 }
 
@@ -31,7 +32,6 @@ where
     pub fn new(context: C, on_void: F) -> Self {
         Self {
             runner: WaitThread::new(),
-            interval: Duration::new(0, 1000),
             context: Arc::new(Mutex::new(context)),
             on_void,
         }
@@ -44,7 +44,7 @@ where
     F: FnOnce(C) -> R + Clone,
 {
     fn is_valid(&self) -> bool {
-        (*self.context.lock().unwrap()).is_valid()
+        (*self.context.lock().unwrap()).poll_valid()
     }
 
     // This contract cannot expire
@@ -63,12 +63,14 @@ where
     }
 }
 
-impl<F, C, R> ContractExt<C> for OnKillContract<F, C, R>
+impl<F, C, R> ContractExt for OnKillContract<F, C, R>
 where
     C: ContractContext + Clone,
     F: FnOnce(C) -> R + Clone,
 {
-    fn get_context(&self) -> Arc<Mutex<C>> {
+    type Context = Arc<Mutex<C>>;
+
+    fn get_context(&self) -> Self::Context {
         self.context.clone()
     }
 }
@@ -85,7 +87,7 @@ where
             .sender()
             .send(WaitMessage::WakeIn {
                 waker: cx.waker().clone(),
-                duration: self.interval,
+                duration: Duration::new(0, 100),
             })
             .unwrap();
 
