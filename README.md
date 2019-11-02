@@ -11,9 +11,6 @@ rustracts = "0.2.0-alpha.3"
 
 - FuturesContract: Will produce a value at expiration if the contract was not voided
 - OnKillContract: Will produce a value if the context is invalidated
-
-### To Come
-
 - OptionContract: Will produce value at expiration if the secondary context has realised and the contract was not voided before
 
 ## Examples
