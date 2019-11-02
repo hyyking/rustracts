@@ -39,7 +39,7 @@ impl WaitThread {
             })),
         }
     }
-    /// Create a copy of the sender
+    /// Create a copy of the underlying sender
     pub fn sender(&self) -> Sender<WaitMessage> {
         self.sender.clone()
     }

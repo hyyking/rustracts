@@ -1,7 +1,8 @@
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use crate::executor::{WaitMessage, WaitThread};
+use crate::sync::{WaitMessage, WaitThread};
+use crate::time::ContractTimer;
 use crate::{Contract, ContractContext, ContractExt, Status};
 
 use futures::{
@@ -18,9 +19,10 @@ where
     F: FnOnce(C) -> R + Clone,
 {
     runner: WaitThread,
-    creation: Instant,
-    expire: Duration,
+    timer: ContractTimer,
+
     context: Arc<Mutex<C>>,
+
     on_exe: F,
 }
 
@@ -32,8 +34,7 @@ where
     pub fn new(expire: Duration, context: C, on_exe: F) -> Self {
         Self {
             runner: WaitThread::new(),
-            creation: Instant::now(),
-            expire,
+            timer: ContractTimer::new(expire),
             context: Arc::new(Mutex::new(context)),
             on_exe,
         }
@@ -46,11 +47,11 @@ where
     F: FnOnce(C) -> R + Clone,
 {
     fn is_valid(&self) -> bool {
-        (*self.context.lock().unwrap()).is_valid()
+        (*self.context.lock().unwrap()).poll_valid()
     }
 
     fn is_expired(&self) -> bool {
-        Instant::now().duration_since(self.creation) > self.expire
+        self.timer.expired()
     }
 
     fn execute(&self) -> Self::Output {
@@ -62,12 +63,14 @@ where
     }
 }
 
-impl<F, C, R> ContractExt<C> for FuturesContract<F, C, R>
+impl<F, C, R> ContractExt for FuturesContract<F, C, R>
 where
     C: ContractContext + Clone,
     F: FnOnce(C) -> R + Clone,
 {
-    fn get_context(&self) -> Arc<Mutex<C>> {
+    type Context = Arc<Mutex<C>>;
+
+    fn get_context(&self) -> Self::Context {
         self.context.clone()
     }
 }
@@ -84,7 +87,7 @@ where
             .sender()
             .send(WaitMessage::WakeIn {
                 waker: cx.waker().clone(),
-                duration: self.expire / 10,
+                duration: Duration::new(0, 1000),
             })
             .unwrap();
 
@@ -99,19 +102,16 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::FuturesContract;
-    use crate::context::cmp::GtContext;
-    use crate::{ContractExt, Status};
+    use crate::{context::cmp::GtContext, ContractExt, FuturesContract, Status};
 
     use std::time::Duration;
 
     #[test]
     fn fut_simple_contract() {
-        let context: usize = 3;
-        let c = FuturesContract::new(Duration::from_secs(1), context, |con| -> usize { con + 5 });
+        let c = FuturesContract::new(Duration::from_secs(1), (), |_| -> usize { 5 });
 
         if let Status::Completed(value) = futures::executor::block_on(c) {
-            assert_eq!(value, 8)
+            assert_eq!(value, 5)
         } else {
             assert!(false)
         }
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn fut_voided_contract() {
-        let context = GtContext(3, 2); // Context is true if self.0 > self.1
+        let context = GtContext(3, 2); // Context is true while self.0 > self.1
 
         let c = FuturesContract::new(Duration::from_secs(4), context, |con| -> usize {
             con.0 + 5

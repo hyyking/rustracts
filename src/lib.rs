@@ -1,21 +1,24 @@
+//! A Contract is a structure that can be invalidated or expired, on expiration the execute
+//! method is called, depending on the contract it could produce a value or not. If the contract is
+//! not valid at the time of the check it will be voided and could produce a value depending on the
+//! contract.
+//!
+//! Contracts are valid futures that can be run to completion on a reactor or awaited in an async
+//! block.
+
 #![deny(clippy::all)]
 
-use std::sync::{Arc, Mutex};
-
-/// A Contract is a structure that can be invalidated or expired, on expiration the execute
-/// method is called, depending on the contract it could produce a value or not. If the contract is
-/// not valid at the time of the check it will be voided and could produce a value depending on the
-/// contract.
-/// Contracts are valid futures that can be run to completion on a reactor or awaited in an async
-/// block.
+/// Contract Trait
 pub trait Contract: ::futures::future::Future {
-    /// Check wether the contract is still valid
+    /// Check wether the contract is still valid. Always true by default.
     fn is_valid(&self) -> bool {
         true
     }
 
-    /// Check wether the contract has expired.
-    fn is_expired(&self) -> bool;
+    /// Check wether the contract has expired. Always false by default.
+    fn is_expired(&self) -> bool {
+        false
+    }
 
     /// Produce a status of the contract on expiration.
     fn execute(&self) -> Self::Output;
@@ -25,12 +28,10 @@ pub trait Contract: ::futures::future::Future {
 }
 
 /// Extention trait for Contracts.
-pub trait ContractExt<C>
-where
-    C: context::ContractContext,
-{
+pub trait ContractExt: Contract {
+    type Context;
     /// Get a thread-safe handle to a ContractContext.
-    fn get_context(&self) -> Arc<Mutex<C>>;
+    fn get_context(&self) -> Self::Context;
 }
 
 /// Status on completion/invalidation of a contract.
@@ -42,21 +43,25 @@ pub enum Status<R> {
     Terminated,
 }
 
-mod futures;
-mod onkill;
+mod contracts;
+mod time;
 
 /// Implementation of contexes to put in a contract.
 pub mod context;
 
 /// Contains contract wakers.
-pub mod executor;
+pub mod sync;
 
 /// Trait that defines a valid context for a contract.
 pub use context::ContractContext;
 
-/// FuturesContract produces a value at a point in the future using the available context if it
+/// Duration based contract produces a value at a point in the future using the available context if it
 /// has not been voided before.
-pub use crate::futures::FuturesContract;
+pub use crate::contracts::FuturesContract;
 
 /// Permanent contract that produces a value when it is voided by it's context.
-pub use crate::onkill::OnKillContract;
+pub use crate::contracts::OnKillContract;
+
+/// Duration based contract produces a value at a point in the future if it has not been voided and
+/// secondary context has been realized.
+pub use crate::contracts::OptionContract;
