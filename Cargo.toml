@@ -19,5 +19,6 @@ categories = ["futures", "async/await", "contracts"]
 
 [dependencies]
 futures-preview = "0.3.0-alpha.19"
+pin-utils =  "0.1.0-alpha.4"
 
 [dev-dependencies]
