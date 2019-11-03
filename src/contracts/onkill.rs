@@ -49,7 +49,7 @@ where
     fn is_valid(&self) -> bool {
         match &self.context {
             Some(c) => c.lock().unwrap().poll_valid(),
-            None => panic!("Cannot check validity on an expired contract"),
+            None => false,
         }
     }
 
