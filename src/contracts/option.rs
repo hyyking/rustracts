@@ -7,7 +7,7 @@ use crate::time::Timer;
 use crate::{Contract, ContractExt, Status};
 
 use futures::{
-    future::Future,
+    future::{FusedFuture, Future},
     task::{Context, Poll},
 };
 
@@ -153,6 +153,17 @@ where
             (Poll::Pending, true, _) => Poll::Pending,
             (_, false, _) => Poll::Ready(self.void()),
         }
+    }
+}
+
+impl<F, VC, PC, R> FusedFuture for OptionContract<F, VC, PC, R>
+where
+    VC: ContractContext + Clone,
+    PC: ContractContext + Clone,
+    F: FnOnce((VC, PC)) -> R,
+{
+    fn is_terminated(&self) -> bool {
+        self.void_context.is_none() || self.prod_context.is_none() || self.on_exe.is_none()
     }
 }
 
