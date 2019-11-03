@@ -9,6 +9,34 @@ pub trait ContractContext {
     }
 }
 
+#[derive(Debug)]
+pub enum ContextErrorKind {
+    ExpiredContext,
+}
+
+#[derive(Debug)]
+pub struct ContextError {
+    kind: ContextErrorKind,
+}
+
+impl ContextError {
+    pub fn from(kind: ContextErrorKind) -> Self {
+        Self { kind }
+    }
+}
+
+impl std::fmt::Display for ContextError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use ContextErrorKind::*;
+        let error = match &self.kind {
+            k @ ExpiredContext => format!("{:?}: context is no longer available", k),
+        };
+        write!(f, "{}", error)
+    }
+}
+
+impl std::error::Error for ContextError {}
+
 impl ContractContext for bool {
     fn poll_valid(&self) -> bool {
         *self
