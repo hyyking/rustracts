@@ -51,20 +51,14 @@ where
     C: ContractContext + Clone,
     F: FnOnce(C) -> R,
 {
-    fn is_valid(&self) -> bool {
+    fn poll_valid(&self) -> bool {
         match &self.context {
             Some(c) => c.lock().unwrap().poll_valid(),
             None => false,
         }
     }
 
-    fn is_expired(&self) -> bool {
-        self.timer.expired()
-    }
-
     fn execute(mut self: std::pin::Pin<&mut Self>) -> Self::Output {
-        // these unpins are safe because the future reached its ready state
-
         let context = crate::inner_or_clone_arcmutex!({
             self.as_mut()
                 .context()
@@ -76,6 +70,7 @@ where
             .on_exe()
             .take()
             .expect("Cannot run a contract after expiration");
+
         Status::Completed(f(context))
     }
 
@@ -115,7 +110,7 @@ where
             })
             .unwrap();
 
-        let mv = (self.as_mut().timer().poll(cx), self.is_valid());
+        let mv = (self.as_mut().timer().poll(cx), self.poll_valid());
         match mv {
             (Poll::Ready(_), true) => Poll::Ready(self.execute()),
             (Poll::Pending, true) => Poll::Pending,

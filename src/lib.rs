@@ -11,13 +11,8 @@
 /// Contract Trait
 pub trait Contract: ::futures::future::Future {
     /// Check wether the contract is still valid. Always true by default.
-    fn is_valid(&self) -> bool {
+    fn poll_valid(&self) -> bool {
         true
-    }
-
-    /// Check wether the contract has expired. Always false by default.
-    fn is_expired(&self) -> bool {
-        false
     }
 
     /// Produce a status of the contract on expiration.

@@ -43,7 +43,8 @@ where
             on_exe: Some(on_exe),
         }
     }
-    fn inner_valid(&self) -> bool {
+
+    fn poll_prod(&self) -> bool {
         match &self.prod_context {
             Some(c) => c.lock().unwrap().poll_valid(),
             None => false,
@@ -62,16 +63,11 @@ where
     PC: ContractContext + Clone,
     F: FnOnce((VC, PC)) -> R,
 {
-    fn is_valid(&self) -> bool {
+    fn poll_valid(&self) -> bool {
         match &self.void_context {
             Some(c) => c.lock().unwrap().poll_valid(),
             None => false,
         }
-    }
-
-    // This contract cannot expire
-    fn is_expired(&self) -> bool {
-        self.timer.expired()
     }
 
     fn execute(mut self: std::pin::Pin<&mut Self>) -> Self::Output {
@@ -138,8 +134,8 @@ where
 
         let mv = (
             self.as_mut().timer().poll(cx),
-            self.is_valid(),
-            self.inner_valid(),
+            self.poll_valid(),
+            self.poll_prod(),
         );
         match mv {
             (Poll::Ready(_), true, true) => Poll::Ready(self.execute()),

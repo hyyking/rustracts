@@ -46,16 +46,11 @@ where
     C: ContractContext + Clone,
     F: FnOnce(C) -> R,
 {
-    fn is_valid(&self) -> bool {
+    fn poll_valid(&self) -> bool {
         match &self.context {
             Some(c) => c.lock().unwrap().poll_valid(),
             None => false,
         }
-    }
-
-    // This contract cannot expire
-    fn is_expired(&self) -> bool {
-        false
     }
 
     fn execute(self: std::pin::Pin<&mut Self>) -> Self::Output {
@@ -110,7 +105,7 @@ where
             })
             .unwrap();
 
-        if !self.is_valid() {
+        if !self.poll_valid() {
             Poll::Ready(self.void())
         } else {
             Poll::Pending
