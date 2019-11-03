@@ -6,7 +6,7 @@ use crate::time::Timer;
 use crate::{Contract, ContractContext, ContractExt, Status};
 
 use futures::{
-    future::Future,
+    future::{FusedFuture, Future},
     task::{Context, Poll},
 };
 
@@ -16,48 +16,71 @@ use futures::{
 pub struct FuturesContract<F, C, R>
 where
     C: ContractContext + Clone,
-    F: FnOnce(C) -> R + Clone,
+    F: FnOnce(C) -> R,
 {
     runner: WaitThread,
     timer: Timer,
 
-    context: Arc<Mutex<C>>,
+    context: Option<Arc<Mutex<C>>>,
 
-    on_exe: F,
+    on_exe: Option<F>,
 }
 
 impl<F, C, R> FuturesContract<F, C, R>
 where
     C: ContractContext + Clone,
-    F: FnOnce(C) -> R + Clone,
+    F: FnOnce(C) -> R,
 {
     pub fn new(expire: Duration, context: C, on_exe: F) -> Self {
         Self {
             runner: WaitThread::new(),
             timer: Timer::new(expire),
-            context: Arc::new(Mutex::new(context)),
-            on_exe,
+            context: Some(Arc::new(Mutex::new(context))),
+            on_exe: Some(on_exe),
         }
     }
+
+    pin_utils::unsafe_pinned!(timer: Timer);
+    pin_utils::unsafe_unpinned!(on_exe: Option<F>);
+    pin_utils::unsafe_unpinned!(context: Option<Arc<Mutex<C>>>);
 }
 
 impl<F, C, R> Contract for FuturesContract<F, C, R>
 where
     C: ContractContext + Clone,
-    F: FnOnce(C) -> R + Clone,
+    F: FnOnce(C) -> R,
 {
     fn is_valid(&self) -> bool {
-        (*self.context.lock().unwrap()).poll_valid()
+        match &self.context {
+            Some(c) => c.lock().unwrap().poll_valid(),
+            None => false,
+        }
     }
 
     fn is_expired(&self) -> bool {
         self.timer.expired()
     }
 
-    fn execute(self: std::pin::Pin<&mut Self>) -> Self::Output {
-        let context = self.context.lock().unwrap().clone();
-        Status::Completed((self.on_exe.clone())(context))
+    fn execute(mut self: std::pin::Pin<&mut Self>) -> Self::Output {
+        // these unpins are safe because the future reached its ready state
+
+        let context = match Arc::try_unwrap(
+            self.as_mut()
+                .context()
+                .take()
+                .expect("Cannot poll after expiration"),
+        ) {
+            Ok(mutex) => mutex.into_inner().unwrap(), // Safe because it is the only reference to the mutex
+            Err(arcmutex) => arcmutex.lock().unwrap().clone(),
+        };
+        let f = self
+            .as_mut()
+            .on_exe()
+            .take()
+            .expect("Cannot run a contract after expiration");
+        Status::Completed(f(context))
     }
+
     fn void(self: std::pin::Pin<&mut Self>) -> Self::Output {
         Status::Terminated
     }
@@ -66,23 +89,27 @@ where
 impl<F, C, R> ContractExt for FuturesContract<F, C, R>
 where
     C: ContractContext + Clone,
-    F: FnOnce(C) -> R + Clone,
+    F: FnOnce(C) -> R,
 {
     type Context = Arc<Mutex<C>>;
 
     fn get_context(&self) -> Self::Context {
-        self.context.clone()
+        match &self.context {
+            Some(c) => c,
+            None => panic!("Cannot get a copy of an expired context"),
+        }
+        .clone()
     }
 }
 
 impl<F, C, R> Future for FuturesContract<F, C, R>
 where
     C: ContractContext + Clone,
-    F: FnOnce(C) -> R + Clone,
+    F: FnOnce(C) -> R,
 {
     type Output = Status<R>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         self.runner
             .sender()
             .send(WaitMessage::WakeIn {
@@ -91,12 +118,22 @@ where
             })
             .unwrap();
 
-        let mv = (self.is_expired(), self.is_valid());
+        let mv = (self.as_mut().timer().poll(cx), self.is_valid());
         match mv {
-            (true, true) => Poll::Ready(self.execute()),
-            (false, true) => Poll::Pending,
+            (Poll::Ready(_), true) => Poll::Ready(self.execute()),
+            (Poll::Pending, true) => Poll::Pending,
             (_, false) => Poll::Ready(self.void()),
         }
+    }
+}
+
+impl<F, C, R> FusedFuture for FuturesContract<F, C, R>
+where
+    C: ContractContext + Clone,
+    F: FnOnce(C) -> R,
+{
+    fn is_terminated(&self) -> bool {
+        self.context.is_none() || self.on_exe.is_none()
     }
 }
 
