@@ -17,45 +17,56 @@ pub struct OptionContract<F, VC, PC, R>
 where
     VC: ContractContext + Clone,
     PC: ContractContext + Clone,
-    F: FnOnce((VC, PC)) -> R + Clone,
+    F: FnOnce((VC, PC)) -> R,
 {
     runner: WaitThread,
     timer: Timer,
 
-    void_context: Arc<Mutex<VC>>,
-    prod_context: Arc<Mutex<PC>>,
+    void_context: Option<Arc<Mutex<VC>>>,
+    prod_context: Option<Arc<Mutex<PC>>>,
 
-    on_void: F,
+    on_exe: Option<F>,
 }
 
 impl<F, VC, PC, R> OptionContract<F, VC, PC, R>
 where
     VC: ContractContext + Clone,
     PC: ContractContext + Clone,
-    F: FnOnce((VC, PC)) -> R + Clone,
+    F: FnOnce((VC, PC)) -> R,
 {
-    pub fn new(expire: Duration, void_c: VC, prod_c: PC, on_void: F) -> Self {
+    pub fn new(expire: Duration, void_c: VC, prod_c: PC, on_exe: F) -> Self {
         Self {
             runner: WaitThread::new(),
             timer: Timer::new(expire),
-            void_context: Arc::new(Mutex::new(void_c)),
-            prod_context: Arc::new(Mutex::new(prod_c)),
-            on_void,
+            void_context: Some(Arc::new(Mutex::new(void_c))),
+            prod_context: Some(Arc::new(Mutex::new(prod_c))),
+            on_exe: Some(on_exe),
         }
     }
     fn inner_valid(&self) -> bool {
-        (*self.prod_context.lock().unwrap()).poll_valid()
+        match &self.prod_context {
+            Some(c) => c.lock().unwrap().poll_valid(),
+            None => false,
+        }
     }
+
+    pin_utils::unsafe_pinned!(timer: Timer);
+    pin_utils::unsafe_unpinned!(void_context: Option<Arc<Mutex<VC>>>);
+    pin_utils::unsafe_unpinned!(prod_context: Option<Arc<Mutex<PC>>>);
+    pin_utils::unsafe_unpinned!(on_exe: Option<F>);
 }
 
 impl<F, VC, PC, R> Contract for OptionContract<F, VC, PC, R>
 where
     VC: ContractContext + Clone,
     PC: ContractContext + Clone,
-    F: FnOnce((VC, PC)) -> R + Clone,
+    F: FnOnce((VC, PC)) -> R,
 {
     fn is_valid(&self) -> bool {
-        (*self.void_context.lock().unwrap()).poll_valid()
+        match &self.void_context {
+            Some(c) => c.lock().unwrap().poll_valid(),
+            None => false,
+        }
     }
 
     // This contract cannot expire
@@ -63,10 +74,33 @@ where
         self.timer.expired()
     }
 
-    fn execute(self: std::pin::Pin<&mut Self>) -> Self::Output {
-        let vcontext = self.void_context.lock().unwrap().clone();
-        let pcontext = self.prod_context.lock().unwrap().clone();
-        Status::Completed((self.on_void.clone())((vcontext, pcontext)))
+    fn execute(mut self: std::pin::Pin<&mut Self>) -> Self::Output {
+        let vcontext = match Arc::try_unwrap(
+            self.as_mut()
+                .void_context()
+                .take()
+                .expect("Cannot poll after expiration"),
+        ) {
+            Ok(mutex) => mutex.into_inner().unwrap(), // Safe because it is the only reference to the mutex
+            Err(arcmutex) => arcmutex.lock().unwrap().clone(),
+        };
+
+        let pcontext = match Arc::try_unwrap(
+            self.as_mut()
+                .prod_context()
+                .take()
+                .expect("Cannot poll after expiration"),
+        ) {
+            Ok(mutex) => mutex.into_inner().unwrap(), // Safe because it is the only reference to the mutex
+            Err(arcmutex) => arcmutex.lock().unwrap().clone(),
+        };
+
+        let f = self
+            .as_mut()
+            .on_exe()
+            .take()
+            .expect("Cannot run a contract after expiration");
+        Status::Completed(f((vcontext, pcontext)))
     }
 
     // This contract is bound and cannot be voided
@@ -79,12 +113,15 @@ impl<F, VC, PC, R> ContractExt for OptionContract<F, VC, PC, R>
 where
     VC: ContractContext + Clone,
     PC: ContractContext + Clone,
-    F: FnOnce((VC, PC)) -> R + Clone,
+    F: FnOnce((VC, PC)) -> R,
 {
     type Context = (Arc<Mutex<VC>>, Arc<Mutex<PC>>);
 
     fn get_context(&self) -> Self::Context {
-        (self.void_context.clone(), self.prod_context.clone())
+        match (&self.void_context, &self.prod_context) {
+            (Some(vc), Some(pc)) => (vc.clone(), pc.clone()),
+            _ => panic!("Cannot get a reference to an expired context"),
+        }
     }
 }
 
@@ -92,11 +129,11 @@ impl<F, VC, PC, R> Future for OptionContract<F, VC, PC, R>
 where
     VC: ContractContext + Clone,
     PC: ContractContext + Clone,
-    F: FnOnce((VC, PC)) -> R + Clone,
+    F: FnOnce((VC, PC)) -> R,
 {
     type Output = Status<R>;
 
-    fn poll(self: std::pin::Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         self.runner
             .sender()
             .send(WaitMessage::WakeIn {
@@ -105,11 +142,15 @@ where
             })
             .unwrap();
 
-        let mv = (self.is_expired(), self.is_valid(), self.inner_valid());
+        let mv = (
+            self.as_mut().timer().poll(cx),
+            self.is_valid(),
+            self.inner_valid(),
+        );
         match mv {
-            (true, true, true) => Poll::Ready(self.execute()),
-            (true, true, false) => Poll::Ready(self.void()),
-            (false, true, _) => Poll::Pending,
+            (Poll::Ready(_), true, true) => Poll::Ready(self.execute()),
+            (Poll::Ready(_), true, false) => Poll::Ready(self.void()),
+            (Poll::Pending, true, _) => Poll::Pending,
             (_, false, _) => Poll::Ready(self.void()),
         }
     }
