@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::context::ContractContext;
+use crate::context::{ContextError, ContextErrorKind, ContractContext};
 use crate::sync::{WaitMessage, WaitThread};
 use crate::time::Timer;
 use crate::{Contract, ContractExt, Status};
@@ -75,25 +75,19 @@ where
     }
 
     fn execute(mut self: std::pin::Pin<&mut Self>) -> Self::Output {
-        let vcontext = match Arc::try_unwrap(
+        let vcontext = crate::inner_or_clone_arcmutex!({
             self.as_mut()
                 .void_context()
                 .take()
-                .expect("Cannot poll after expiration"),
-        ) {
-            Ok(mutex) => mutex.into_inner().unwrap(), // Safe because it is the only reference to the mutex
-            Err(arcmutex) => arcmutex.lock().unwrap().clone(),
-        };
+                .expect("Cannot poll after expiration")
+        });
 
-        let pcontext = match Arc::try_unwrap(
+        let pcontext = crate::inner_or_clone_arcmutex!({
             self.as_mut()
                 .prod_context()
                 .take()
-                .expect("Cannot poll after expiration"),
-        ) {
-            Ok(mutex) => mutex.into_inner().unwrap(), // Safe because it is the only reference to the mutex
-            Err(arcmutex) => arcmutex.lock().unwrap().clone(),
-        };
+                .expect("Cannot poll after expiration")
+        });
 
         let f = self
             .as_mut()
@@ -117,10 +111,10 @@ where
 {
     type Context = (Arc<Mutex<VC>>, Arc<Mutex<PC>>);
 
-    fn get_context(&self) -> Self::Context {
+    fn get_context(&self) -> Result<Self::Context, ContextError> {
         match (&self.void_context, &self.prod_context) {
-            (Some(vc), Some(pc)) => (vc.clone(), pc.clone()),
-            _ => panic!("Cannot get a reference to an expired context"),
+            (Some(vc), Some(pc)) => Ok((vc.clone(), pc.clone())),
+            _ => Err(ContextError::from(ContextErrorKind::ExpiredContext)),
         }
     }
 }
@@ -207,7 +201,7 @@ mod tests {
         );
 
         let handle = std::thread::spawn({
-            let (vcontext, _) = c.get_context();
+            let (vcontext, _) = c.get_context().unwrap();
             move || {
                 (*vcontext.lock().unwrap()).0 += 1;
             }
@@ -235,7 +229,7 @@ mod tests {
         );
 
         let _ = std::thread::spawn({
-            let (_, pcontext) = c.get_context();
+            let (_, pcontext) = c.get_context().unwrap();
             move || {
                 (*pcontext.lock().unwrap()).0 += 1;
             }

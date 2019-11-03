@@ -31,7 +31,7 @@ pub trait Contract: ::futures::future::Future {
 pub trait ContractExt: Contract {
     type Context;
     /// Get a thread-safe handle to a ContractContext.
-    fn get_context(&self) -> Self::Context;
+    fn get_context(&self) -> Result<Self::Context, ContextError>;
 }
 
 /// Status on completion/invalidation of a contract.
@@ -45,6 +45,9 @@ pub enum Status<R> {
 
 mod contracts;
 
+#[macro_use]
+mod macros;
+
 /// Time utilities
 pub mod time;
 
@@ -55,7 +58,7 @@ pub mod context;
 pub mod sync;
 
 /// Trait that defines a valid context for a contract.
-pub use context::ContractContext;
+pub use context::{ContextError, ContractContext};
 
 /// Duration based contract produces a value at a point in the future using the available context if it
 /// has not been voided before.

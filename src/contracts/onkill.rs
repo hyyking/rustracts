@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::context::ContractContext;
+use crate::context::{ContextError, ContextErrorKind, ContractContext};
 use crate::sync::{WaitMessage, WaitThread};
 use crate::{Contract, ContractExt, Status};
 
@@ -64,15 +64,12 @@ where
 
     // This contract is bound and cannot be voided
     fn void(mut self: std::pin::Pin<&mut Self>) -> Self::Output {
-        let context = match Arc::try_unwrap(
+        let context = crate::inner_or_clone_arcmutex!({
             self.as_mut()
                 .context()
                 .take()
-                .expect("Cannot poll after expiration"),
-        ) {
-            Ok(mutex) => mutex.into_inner().unwrap(),
-            Err(arcmutex) => arcmutex.lock().unwrap().clone(),
-        };
+                .expect("Cannot poll after expiration")
+        });
         let f = self
             .as_mut()
             .on_void()
@@ -89,10 +86,10 @@ where
 {
     type Context = Arc<Mutex<C>>;
 
-    fn get_context(&self) -> Self::Context {
+    fn get_context(&self) -> Result<Self::Context, ContextError> {
         match &self.context {
-            Some(c) => c.clone(),
-            None => panic!("Cannot get a context on a finished contract"),
+            Some(c) => Ok(c.clone()),
+            None => Err(ContextError::from(ContextErrorKind::ExpiredContext)),
         }
     }
 }
@@ -144,7 +141,7 @@ mod tests {
         let c = OnKillContract::new(context, |con| -> usize { con.0 + 5 });
 
         let _ = std::thread::spawn({
-            let mcontext = c.get_context();
+            let mcontext = c.get_context().unwrap();
             move || {
                 (*mcontext.lock().unwrap()).0 = 5; // Modify context
             }
