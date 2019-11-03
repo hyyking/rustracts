@@ -6,7 +6,7 @@ use crate::sync::{WaitMessage, WaitThread};
 use crate::{Contract, ContractExt, Status};
 
 use futures::{
-    future::Future,
+    future::{FusedFuture, Future},
     task::{Context, Poll},
 };
 
@@ -15,36 +15,42 @@ use futures::{
 pub struct OnKillContract<F, C, R>
 where
     C: ContractContext + Clone,
-    F: FnOnce(C) -> R + Clone,
+    F: FnOnce(C) -> R,
 {
     runner: WaitThread,
 
-    context: Arc<Mutex<C>>,
+    context: Option<Arc<Mutex<C>>>,
 
-    on_void: F,
+    on_void: Option<F>,
 }
 
 impl<F, C, R> OnKillContract<F, C, R>
 where
     C: ContractContext + Clone,
-    F: FnOnce(C) -> R + Clone,
+    F: FnOnce(C) -> R,
 {
     pub fn new(context: C, on_void: F) -> Self {
         Self {
             runner: WaitThread::new(),
-            context: Arc::new(Mutex::new(context)),
-            on_void,
+            context: Some(Arc::new(Mutex::new(context))),
+            on_void: Some(on_void),
         }
     }
+
+    pin_utils::unsafe_unpinned!(context: Option<Arc<Mutex<C>>>);
+    pin_utils::unsafe_unpinned!(on_void: Option<F>);
 }
 
 impl<F, C, R> Contract for OnKillContract<F, C, R>
 where
     C: ContractContext + Clone,
-    F: FnOnce(C) -> R + Clone,
+    F: FnOnce(C) -> R,
 {
     fn is_valid(&self) -> bool {
-        (*self.context.lock().unwrap()).poll_valid()
+        match &self.context {
+            Some(c) => c.lock().unwrap().poll_valid(),
+            None => false,
+        }
     }
 
     // This contract cannot expire
@@ -52,33 +58,49 @@ where
         false
     }
 
-    fn execute(&self) -> Self::Output {
+    fn execute(self: std::pin::Pin<&mut Self>) -> Self::Output {
         Status::Terminated
     }
 
     // This contract is bound and cannot be voided
-    fn void(&self) -> Self::Output {
-        let context = self.context.lock().unwrap().clone();
-        Status::Completed((self.on_void.clone())(context))
+    fn void(mut self: std::pin::Pin<&mut Self>) -> Self::Output {
+        let context = match Arc::try_unwrap(
+            self.as_mut()
+                .context()
+                .take()
+                .expect("Cannot poll after expiration"),
+        ) {
+            Ok(mutex) => mutex.into_inner().unwrap(),
+            Err(arcmutex) => arcmutex.lock().unwrap().clone(),
+        };
+        let f = self
+            .as_mut()
+            .on_void()
+            .take()
+            .expect("Cannot poll after expiration");
+        Status::Completed(f(context))
     }
 }
 
 impl<F, C, R> ContractExt for OnKillContract<F, C, R>
 where
     C: ContractContext + Clone,
-    F: FnOnce(C) -> R + Clone,
+    F: FnOnce(C) -> R,
 {
     type Context = Arc<Mutex<C>>;
 
     fn get_context(&self) -> Self::Context {
-        self.context.clone()
+        match &self.context {
+            Some(c) => c.clone(),
+            None => panic!("Cannot get a context on a finished contract"),
+        }
     }
 }
 
 impl<F, C, R> Future for OnKillContract<F, C, R>
 where
     C: ContractContext + Clone,
-    F: FnOnce(C) -> R + Clone,
+    F: FnOnce(C) -> R,
 {
     type Output = Status<R>;
 
@@ -99,6 +121,16 @@ where
     }
 }
 
+impl<F, C, R> FusedFuture for OnKillContract<F, C, R>
+where
+    C: ContractContext + Clone,
+    F: FnOnce(C) -> R,
+{
+    fn is_terminated(&self) -> bool {
+        self.context.is_none() || self.on_void.is_none()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::OnKillContract;
@@ -111,19 +143,18 @@ mod tests {
 
         let c = OnKillContract::new(context, |con| -> usize { con.0 + 5 });
 
-        let handle = std::thread::spawn({
+        let _ = std::thread::spawn({
             let mcontext = c.get_context();
             move || {
                 (*mcontext.lock().unwrap()).0 = 5; // Modify context
             }
-        });
+        })
+        .join();
 
         if let Status::Completed(val) = futures::executor::block_on(c) {
             assert_eq!(val, 10); // Contract has been executed since context is invalidated by update
         } else {
             assert!(false);
         }
-
-        handle.join().unwrap();
     }
 }

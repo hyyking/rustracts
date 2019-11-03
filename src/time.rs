@@ -2,6 +2,11 @@ use std::time::{Duration, Instant};
 
 use crate::context::ContractContext;
 
+use futures::{
+    future::Future,
+    task::{Context, Poll},
+};
+
 /// Timer Object that can be polled
 pub struct Timer {
     creation: Instant,
@@ -25,5 +30,17 @@ impl Timer {
 impl ContractContext for Timer {
     fn poll_valid(&self) -> bool {
         self.expired()
+    }
+}
+
+impl Future for Timer {
+    type Output = ();
+
+    fn poll(self: std::pin::Pin<&mut Self>, _: &mut Context) -> Poll<Self::Output> {
+        if self.expired() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
     }
 }

@@ -21,10 +21,10 @@ pub trait Contract: ::futures::future::Future {
     }
 
     /// Produce a status of the contract on expiration.
-    fn execute(&self) -> Self::Output;
+    fn execute(self: std::pin::Pin<&mut Self>) -> Self::Output;
 
     /// Produce a status of the contract on cancel.
-    fn void(&self) -> Self::Output;
+    fn void(self: std::pin::Pin<&mut Self>) -> Self::Output;
 }
 
 /// Extention trait for Contracts.
