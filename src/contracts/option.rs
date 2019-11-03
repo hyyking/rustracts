@@ -63,14 +63,14 @@ where
         self.timer.expired()
     }
 
-    fn execute(&self) -> Self::Output {
+    fn execute(self: std::pin::Pin<&mut Self>) -> Self::Output {
         let vcontext = self.void_context.lock().unwrap().clone();
         let pcontext = self.prod_context.lock().unwrap().clone();
         Status::Completed((self.on_void.clone())((vcontext, pcontext)))
     }
 
     // This contract is bound and cannot be voided
-    fn void(&self) -> Self::Output {
+    fn void(self: std::pin::Pin<&mut Self>) -> Self::Output {
         Status::Terminated
     }
 }
@@ -182,19 +182,18 @@ mod tests {
             |(vcon, pcon)| -> usize { vcon.0 + pcon.0 + 1 },
         );
 
-        let handle = std::thread::spawn({
+        let _ = std::thread::spawn({
             let (_, pcontext) = c.get_context();
             move || {
                 (*pcontext.lock().unwrap()).0 += 1;
             }
-        });
+        })
+        .join();
 
         if let Status::Completed(val) = futures::executor::block_on(c) {
             assert_ne!(val, 6); // Contract has been voided since context is invalidated by update
         } else {
             assert!(true);
         }
-
-        handle.join().unwrap();
     }
 }

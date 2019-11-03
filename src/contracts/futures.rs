@@ -54,11 +54,11 @@ where
         self.timer.expired()
     }
 
-    fn execute(&self) -> Self::Output {
+    fn execute(self: std::pin::Pin<&mut Self>) -> Self::Output {
         let context = self.context.lock().unwrap().clone();
         Status::Completed((self.on_exe.clone())(context))
     }
-    fn void(&self) -> Self::Output {
+    fn void(self: std::pin::Pin<&mut Self>) -> Self::Output {
         Status::Terminated
     }
 }
@@ -125,20 +125,19 @@ mod tests {
             con.0 + 5
         });
 
-        let handle = std::thread::spawn({
+        let _ = std::thread::spawn({
             let mcontext = c.get_context();
             move || {
                 (*mcontext.lock().unwrap()).0 = 1; // Modify context before contract ends
             }
-        });
+        })
+        .join();
 
         if let Status::Completed(val) = futures::executor::block_on(c) {
             assert_ne!(val, 1);
         } else {
             assert!(true); // Contract should be voided because updated value is 1 which is < 2
         }
-
-        handle.join().unwrap();
     }
 
     #[test]
@@ -149,19 +148,18 @@ mod tests {
             con.0 + 5
         });
 
-        let handle = std::thread::spawn({
+        let _ = std::thread::spawn({
             let mcontext = c.get_context();
             move || {
                 (*mcontext.lock().unwrap()).0 += 2;
             }
-        });
+        })
+        .join();
 
         if let Status::Completed(value) = futures::executor::block_on(c) {
             assert_eq!(value, 10);
         } else {
             assert!(false);
         }
-
-        handle.join().unwrap();
     }
 }
