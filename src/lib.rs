@@ -40,9 +40,6 @@ pub enum Status<R> {
 
 mod contracts;
 
-#[macro_use]
-mod macros;
-
 /// Time utilities.
 pub mod time;
 
