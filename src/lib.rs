@@ -43,14 +43,17 @@ mod contracts;
 #[macro_use]
 mod macros;
 
-/// Time utilities
+/// Time utilities.
 pub mod time;
 
-/// Implementation of contexes to put in a contract.
+/// ContractContext implementations.
 pub mod context;
 
-/// Contains contract wakers.
+/// Structures to sync contexts.
 pub mod sync;
+
+/// Parkable waker threads.
+pub mod park;
 
 /// Trait that defines a valid context for a contract.
 pub use context::{ContextError, ContractContext};

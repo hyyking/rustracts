@@ -1,8 +1,9 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::context::{ContextError, ContextErrorKind, ContractContext};
-use crate::sync::{WaitMessage, WaitThread};
+use crate::park::{WaitMessage, WaitThread};
+use crate::sync::{LockArc, LockWeak};
 use crate::{Contract, ContractExt, Status};
 
 use futures::{
@@ -14,36 +15,36 @@ use futures::{
 #[must_use = "contracts do nothing unless polled or awaited"]
 pub struct OnKillContract<F, C, R>
 where
-    C: ContractContext + Clone,
+    C: ContractContext,
     F: FnOnce(C) -> R,
 {
     runner: WaitThread,
 
-    context: Option<Arc<Mutex<C>>>,
+    context: Option<LockArc<Mutex<C>>>,
 
     on_void: Option<F>,
 }
 
 impl<F, C, R> OnKillContract<F, C, R>
 where
-    C: ContractContext + Clone,
+    C: ContractContext,
     F: FnOnce(C) -> R,
 {
     pub fn new(context: C, on_void: F) -> Self {
         Self {
             runner: WaitThread::new(),
-            context: Some(Arc::new(Mutex::new(context))),
+            context: Some(LockArc::new(Mutex::new(context))),
             on_void: Some(on_void),
         }
     }
 
-    pin_utils::unsafe_unpinned!(context: Option<Arc<Mutex<C>>>);
+    pin_utils::unsafe_unpinned!(context: Option<LockArc<Mutex<C>>>);
     pin_utils::unsafe_unpinned!(on_void: Option<F>);
 }
 
 impl<F, C, R> Contract for OnKillContract<F, C, R>
 where
-    C: ContractContext + Clone,
+    C: ContractContext,
     F: FnOnce(C) -> R,
 {
     fn poll_valid(&self) -> bool {
@@ -59,31 +60,33 @@ where
 
     // This contract is bound and cannot be voided
     fn void(mut self: std::pin::Pin<&mut Self>) -> Self::Output {
-        let context = crate::inner_or_clone_arcmutex!({
-            self.as_mut()
-                .context()
-                .take()
-                .expect("Cannot poll after expiration")
-        });
+        let lockarc = self
+            .as_mut()
+            .context()
+            .take()
+            .expect("Cannot poll after expiration");
+        let context = lockarc.consumme().into_inner().unwrap();
+
         let f = self
             .as_mut()
             .on_void()
             .take()
             .expect("Cannot poll after expiration");
+
         Status::Completed(f(context))
     }
 }
 
 impl<F, C, R> ContractExt for OnKillContract<F, C, R>
 where
-    C: ContractContext + Clone,
+    C: ContractContext,
     F: FnOnce(C) -> R,
 {
-    type Context = Arc<Mutex<C>>;
+    type Context = LockWeak<Mutex<C>>;
 
     fn get_context(&self) -> Result<Self::Context, ContextError> {
         match &self.context {
-            Some(c) => Ok(c.clone()),
+            Some(ref c) => Ok(LockWeak::from(c)),
             None => Err(ContextError::from(ContextErrorKind::ExpiredContext)),
         }
     }
@@ -91,7 +94,7 @@ where
 
 impl<F, C, R> Future for OnKillContract<F, C, R>
 where
-    C: ContractContext + Clone,
+    C: ContractContext,
     F: FnOnce(C) -> R,
 {
     type Output = Status<R>;
@@ -115,7 +118,7 @@ where
 
 impl<F, C, R> FusedFuture for OnKillContract<F, C, R>
 where
-    C: ContractContext + Clone,
+    C: ContractContext,
     F: FnOnce(C) -> R,
 {
     fn is_terminated(&self) -> bool {
@@ -138,7 +141,10 @@ mod tests {
         let _ = std::thread::spawn({
             let mcontext = c.get_context().unwrap();
             move || {
-                (*mcontext.lock().unwrap()).0 = 5; // Modify context
+                match mcontext.upgrade() {
+                    Some(mutex) => mutex.lock().unwrap().0 = 5, // Modify Context
+                    None => {}
+                }
             }
         })
         .join();
