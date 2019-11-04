@@ -7,14 +7,14 @@ use futures::{
     task::{Context, Poll},
 };
 
-/// Timer Object that can be polled
+/// Timer future that will finish when it's time is done. Timers are also valid contract clauses.
 pub struct Timer {
     creation: Instant,
     pub duration: Duration,
 }
 
 impl Timer {
-    /// Construct a new ContractTimer from a duration
+    /// Construct a new ContractTimer from a Duration
     pub fn new(duration: Duration) -> Self {
         Self {
             creation: Instant::now(),

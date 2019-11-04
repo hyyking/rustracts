@@ -24,7 +24,9 @@ pub trait Contract: ::futures::future::Future {
 
 /// Extention trait for Contracts.
 pub trait ContractExt: Contract {
+    /// Return type of `get_context`
     type Context;
+
     /// Get a thread-safe handle to a ContractContext.
     fn get_context(&self) -> Result<Self::Context, ContextError>;
 }

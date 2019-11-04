@@ -12,7 +12,8 @@ use futures::{
     task::{Context, Poll},
 };
 
-/// Contract that produces a value if secondary context is valid at expiration
+/// Contract that produces a value if secondary context is valid at expiration and it has not been
+/// voided by the first context.
 #[must_use = "contracts do nothing unless polled or awaited"]
 pub struct OptionContract<F, VC, PC, R>
 where

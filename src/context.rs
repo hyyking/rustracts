@@ -1,7 +1,7 @@
-//! Contexes are elements that can be polled to verify wether their inner state is still considered
+//! Contexts are elements that can be polled to verify wether their inner state is still considered
 //! valid or not.
 
-/// Trait for Contexes
+/// Trait for Contexts
 pub trait ContractContext {
     /// Check wether the clauses are still met, true by default.
     fn poll_valid(&self) -> bool {
@@ -9,17 +9,21 @@ pub trait ContractContext {
     }
 }
 
+/// Kinds of ContextErrors
 #[derive(Debug)]
 pub enum ContextErrorKind {
+    /// Context has expired for this current Contract
     ExpiredContext,
 }
 
+/// Error Type for Context Related Errors
 #[derive(Debug)]
 pub struct ContextError {
     kind: ContextErrorKind,
 }
 
 impl ContextError {
+    /// Build a ContextError from a ContextErrorKind
     pub fn from(kind: ContextErrorKind) -> Self {
         Self { kind }
     }
@@ -29,7 +33,9 @@ impl std::fmt::Display for ContextError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         use ContextErrorKind::*;
         let error = match &self.kind {
-            k @ ExpiredContext => format!("{:?}: context is no longer available", k),
+            k @ ExpiredContext => {
+                format!("{:?}: context is no longer available in this contract", k)
+            }
         };
         write!(f, "{}", error)
     }
@@ -77,12 +83,11 @@ impl DefaultContext {
     }
 }
 
-/// Generic comparaison contexes
+/// Generic comparaison contexts
 pub mod cmp {
     use super::ContractContext;
 
     /// Context to compare the equality of two elements
-    #[derive(Copy, Clone)]
     pub struct EqContext<A, B>(pub A, pub B);
 
     impl<A, B> ContractContext for EqContext<A, B>
@@ -95,7 +100,6 @@ pub mod cmp {
     }
 
     /// Context to compare the inequality of two elements
-    #[derive(Copy, Clone)]
     pub struct NqContext<A, B>(pub A, pub B);
 
     impl<A, B> ContractContext for NqContext<A, B>
@@ -108,7 +112,6 @@ pub mod cmp {
     }
 
     /// Context to compare the less than ordering of two elements
-    #[derive(Copy, Clone)]
     pub struct LtContext<A>(pub A, pub A);
 
     impl<A> ContractContext for LtContext<A>
@@ -121,7 +124,6 @@ pub mod cmp {
     }
 
     /// Context to compare the less or equal ordering of two elements
-    #[derive(Copy, Clone)]
     pub struct LeContext<A>(pub A, pub A);
 
     impl<A> ContractContext for LeContext<A>
@@ -134,7 +136,6 @@ pub mod cmp {
     }
 
     /// Context to compare the greater than ordering of two elements
-    #[derive(Copy, Clone)]
     pub struct GtContext<A>(pub A, pub A);
 
     impl<A> ContractContext for GtContext<A>
@@ -147,7 +148,6 @@ pub mod cmp {
     }
 
     /// Context to compare the greater or equal ordering of two elements
-    #[derive(Copy, Clone)]
     pub struct GeContext<A>(pub A, pub A);
 
     impl<A> ContractContext for GeContext<A>
