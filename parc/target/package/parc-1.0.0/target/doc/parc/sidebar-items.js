@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["TryUnwrapError","Errors for `TryArcResult`"]],"struct":[["ChildArc","Unclonable owned reference to a `ParentArc`."],["LockWeak","Weak reference to a `ParentArc`."],["ParentArc","Owner of multiple atomically reference counted children."]],"type":[["TryUnwrapResult","Result Type for [`try_into_inner`]"]]});
