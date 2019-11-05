@@ -8,7 +8,7 @@ This crate is compatible with `#![no_std]` environnement that provides an alloca
 
 ```toml
 [dependencies]
-parc = "1"
+parc = features{version="1", default-features = false} # for no_std
 ```
 
 
