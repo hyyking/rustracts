@@ -48,9 +48,6 @@ pub mod time;
 /// ContractContext implementations.
 pub mod context;
 
-/// Structures to sync contexts.
-pub mod sync;
-
 /// Parkable waker threads.
 pub mod park;
 

@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use crate::context::{ContextError, ContextErrorKind, ContractContext};
 use crate::park::{WaitMessage, WaitThread};
-use crate::sync::{LockArc, LockWeak};
 use crate::time::Timer;
 use crate::{Contract, ContractExt, Status};
 
@@ -11,6 +10,7 @@ use futures::{
     future::{FusedFuture, Future},
     task::{Context, Poll},
 };
+use parc::{LockWeak, ParentArc};
 
 /// A FuturesContract produces a value from it's context at it's expire time if it has not been voided
 /// before.
@@ -23,7 +23,7 @@ where
     runner: WaitThread,
     timer: Timer,
 
-    context: Option<LockArc<Mutex<C>>>,
+    context: Option<ParentArc<Mutex<C>>>,
 
     on_exe: Option<F>,
 }
@@ -37,14 +37,14 @@ where
         Self {
             runner: WaitThread::new(),
             timer: Timer::new(expire),
-            context: Some(LockArc::new(Mutex::new(context))),
+            context: Some(ParentArc::new(Mutex::new(context))),
             on_exe: Some(on_exe),
         }
     }
 
     pin_utils::unsafe_pinned!(timer: Timer);
     pin_utils::unsafe_unpinned!(on_exe: Option<F>);
-    pin_utils::unsafe_unpinned!(context: Option<LockArc<Mutex<C>>>);
+    pin_utils::unsafe_unpinned!(context: Option<ParentArc<Mutex<C>>>);
 }
 
 impl<F, C, R> Contract for FuturesContract<F, C, R>
@@ -54,7 +54,7 @@ where
 {
     fn poll_valid(&self) -> bool {
         match &self.context {
-            Some(c) => c.lock().unwrap().poll_valid(),
+            Some(c) => c.as_ref().lock().unwrap().poll_valid(),
             None => false,
         }
     }
@@ -66,8 +66,8 @@ where
             .take()
             .expect("Cannot poll after return");
 
-        // Consumme LockArc to return the mutex
-        let context = lockarc.consumme().into_inner().unwrap();
+        // Consumme ParentArc to return the mutex
+        let context = lockarc.block_into_inner().into_inner().unwrap();
 
         let f = self
             .as_mut()
@@ -92,7 +92,7 @@ where
 
     fn get_context(&self) -> Result<Self::Context, ContextError> {
         match &self.context {
-            Some(ref c) => Ok(LockArc::downgrade(c)),
+            Some(ref c) => Ok(ParentArc::downgrade(c)),
             None => Err(ContextError::from(ContextErrorKind::ExpiredContext)),
         }
     }

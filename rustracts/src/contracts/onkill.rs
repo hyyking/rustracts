@@ -3,13 +3,13 @@ use std::time::Duration;
 
 use crate::context::{ContextError, ContextErrorKind, ContractContext};
 use crate::park::{WaitMessage, WaitThread};
-use crate::sync::{LockArc, LockWeak};
 use crate::{Contract, ContractExt, Status};
 
 use futures::{
     future::{FusedFuture, Future},
     task::{Context, Poll},
 };
+use parc::{LockWeak, ParentArc};
 
 /// Permanent contract that produces a value when it is voided by the underlying context.
 #[must_use = "contracts do nothing unless polled or awaited"]
@@ -20,7 +20,7 @@ where
 {
     runner: WaitThread,
 
-    context: Option<LockArc<Mutex<C>>>,
+    context: Option<ParentArc<Mutex<C>>>,
 
     on_void: Option<F>,
 }
@@ -33,12 +33,12 @@ where
     pub fn new(context: C, on_void: F) -> Self {
         Self {
             runner: WaitThread::new(),
-            context: Some(LockArc::new(Mutex::new(context))),
+            context: Some(ParentArc::new(Mutex::new(context))),
             on_void: Some(on_void),
         }
     }
 
-    pin_utils::unsafe_unpinned!(context: Option<LockArc<Mutex<C>>>);
+    pin_utils::unsafe_unpinned!(context: Option<ParentArc<Mutex<C>>>);
     pin_utils::unsafe_unpinned!(on_void: Option<F>);
 }
 
@@ -49,7 +49,7 @@ where
 {
     fn poll_valid(&self) -> bool {
         match &self.context {
-            Some(c) => c.lock().unwrap().poll_valid(),
+            Some(c) => c.as_ref().lock().unwrap().poll_valid(),
             None => false,
         }
     }
@@ -65,7 +65,7 @@ where
             .context()
             .take()
             .expect("Cannot poll after expiration");
-        let context = lockarc.consumme().into_inner().unwrap();
+        let context = lockarc.block_into_inner().into_inner().unwrap();
 
         let f = self
             .as_mut()
@@ -86,7 +86,7 @@ where
 
     fn get_context(&self) -> Result<Self::Context, ContextError> {
         match &self.context {
-            Some(ref c) => Ok(LockWeak::from(c)),
+            Some(ref c) => Ok(ParentArc::downgrade(c)),
             None => Err(ContextError::from(ContextErrorKind::ExpiredContext)),
         }
     }

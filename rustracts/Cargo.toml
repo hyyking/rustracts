@@ -1,0 +1,25 @@
+[package]
+name = "rustracts"
+version = "0.2.0"
+authors = ["hyyking <leoduret@outlook.com>"]
+edition = "2018"
+
+license = "MIT"
+readme = "../README.md"
+
+description = "Rust crate for cancellable time based contracts in async/await"
+
+homepage = "https://github.com/hyyking/rustracts"
+repository = "https://github.com/hyyking/rustracts"
+documentation="https://docs.rs/rustracts"
+
+keywords = ["async", "await", "contract", "futures"]
+categories = ["asynchronous", "concurrency", "data-structures"]
+
+[dependencies]
+futures = {version = "0.3.1", default-features=false}
+pin-utils =  "0.1.0-alpha.4"
+parc = {path="../parc", version = "1.0.1"}
+
+[dev-dependencies]
+futures = "0.3.1"

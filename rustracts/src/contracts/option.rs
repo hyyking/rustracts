@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use crate::context::{ContextError, ContextErrorKind, ContractContext};
 use crate::park::{WaitMessage, WaitThread};
-use crate::sync::{LockArc, LockWeak};
 use crate::time::Timer;
 use crate::{Contract, ContractExt, Status};
 
@@ -11,6 +10,7 @@ use futures::{
     future::{FusedFuture, Future},
     task::{Context, Poll},
 };
+use parc::{LockWeak, ParentArc};
 
 /// Contract that produces a value if secondary context is valid at expiration and it has not been
 /// voided by the first context.
@@ -24,8 +24,8 @@ where
     runner: WaitThread,
     timer: Timer,
 
-    void_context: Option<LockArc<Mutex<VC>>>,
-    prod_context: Option<LockArc<Mutex<PC>>>,
+    void_context: Option<ParentArc<Mutex<VC>>>,
+    prod_context: Option<ParentArc<Mutex<PC>>>,
 
     on_exe: Option<F>,
 }
@@ -40,22 +40,22 @@ where
         Self {
             runner: WaitThread::new(),
             timer: Timer::new(expire),
-            void_context: Some(LockArc::new(Mutex::new(void_c))),
-            prod_context: Some(LockArc::new(Mutex::new(prod_c))),
+            void_context: Some(ParentArc::new(Mutex::new(void_c))),
+            prod_context: Some(ParentArc::new(Mutex::new(prod_c))),
             on_exe: Some(on_exe),
         }
     }
 
     fn poll_prod(&self) -> bool {
         match &self.prod_context {
-            Some(c) => c.lock().unwrap().poll_valid(),
+            Some(c) => c.as_ref().lock().unwrap().poll_valid(),
             None => false,
         }
     }
 
     pin_utils::unsafe_pinned!(timer: Timer);
-    pin_utils::unsafe_unpinned!(void_context: Option<LockArc<Mutex<VC>>>);
-    pin_utils::unsafe_unpinned!(prod_context: Option<LockArc<Mutex<PC>>>);
+    pin_utils::unsafe_unpinned!(void_context: Option<ParentArc<Mutex<VC>>>);
+    pin_utils::unsafe_unpinned!(prod_context: Option<ParentArc<Mutex<PC>>>);
     pin_utils::unsafe_unpinned!(on_exe: Option<F>);
 }
 
@@ -67,7 +67,7 @@ where
 {
     fn poll_valid(&self) -> bool {
         match &self.void_context {
-            Some(c) => c.lock().unwrap().poll_valid(),
+            Some(c) => c.as_ref().lock().unwrap().poll_valid(),
             None => false,
         }
     }
@@ -84,8 +84,8 @@ where
             .take()
             .expect("Cannot poll after expiration");
 
-        let vcontext = vlockarc.consumme().into_inner().unwrap();
-        let pcontext = plockarc.consumme().into_inner().unwrap();
+        let vcontext = vlockarc.block_into_inner().into_inner().unwrap();
+        let pcontext = plockarc.block_into_inner().into_inner().unwrap();
 
         let f = self
             .as_mut()
@@ -112,7 +112,9 @@ where
 
     fn get_context(&self) -> Result<Self::Context, ContextError> {
         match (&self.void_context, &self.prod_context) {
-            (Some(ref vc), Some(ref pc)) => Ok((LockWeak::from(vc), LockWeak::from(pc))),
+            (Some(ref vc), Some(ref pc)) => {
+                Ok((ParentArc::downgrade(vc), ParentArc::downgrade(pc)))
+            }
             _ => Err(ContextError::from(ContextErrorKind::ExpiredContext)),
         }
     }

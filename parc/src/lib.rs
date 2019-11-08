@@ -7,8 +7,8 @@
 //! [`#![no_std]`](https://rust-embedded.github.io/book/intro/no-std.html) environnements that
 //! provide an allocator.
 
-#![deny(missing_docs)]
 #![no_std]
+#![deny(missing_docs)]
 
 #[cfg(not(feature = "std"))]
 mod imports {
@@ -27,6 +27,7 @@ use imports::*;
 
 use core::mem;
 use core::ops;
+use core::pin::Pin;
 use core::ptr;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -88,6 +89,12 @@ impl<T> ParentArc<T> {
         Self {
             ptr: Womb::as_nnptr(data),
         }
+    }
+
+    /// Constructs a new `Pin<ParentArc<T>>`. If `T` does not implement `Unpin`, then
+    /// `data` will be pinned in memory and unable to be moved.
+    pub fn pin(data: T) -> Pin<ParentArc<T>> {
+        unsafe { Pin::new_unchecked(ParentArc::new(data)) }
     }
 
     /// Locks all [`LockWeak`](struct.LockWeak.html) of this instance, it
@@ -256,13 +263,12 @@ impl<T> ParentArc<T> {
     /// ```
     pub fn try_unwrap(other: Self) -> TryUnwrapResult<T> {
         let this = other.inner();
-        let count = this.strong.load(Ordering::Relaxed);
 
-        if !this.lock.load(Ordering::Acquire) && count > 0 {
+        if !this.lock.load(Ordering::Relaxed) && this.strong.load(Ordering::Relaxed) > 0 {
             // Check for non-null count and unlock state
             return Err(TryUnwrapError::WouldLock(other));
         }
-        if count != 0 {
+        if this.strong.load(Ordering::Relaxed) != 0 {
             return Err(TryUnwrapError::WouldBlock(other));
         }
 
@@ -275,6 +281,19 @@ impl<T> ParentArc<T> {
 
     fn inner(&self) -> &Womb<T> {
         unsafe { self.ptr.as_ref() } // Ok to do this because we own the data
+    }
+}
+
+impl<T> AsRef<T> for ParentArc<T> {
+    fn as_ref(&self) -> &T {
+        &self.inner().data
+    }
+}
+
+impl<T> ops::Deref for ParentArc<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.inner().data
     }
 }
 
@@ -391,6 +410,12 @@ impl<T> ChildArc<T> {
     fn inner(&self) -> &Womb<T> {
         // safe because strong count is up one
         unsafe { self.ptr.as_ref() }
+    }
+}
+
+impl<T> AsRef<T> for ChildArc<T> {
+    fn as_ref(&self) -> &T {
+        &self.inner().data
     }
 }
 
