@@ -18,8 +18,8 @@ categories = ["asynchronous", "concurrency", "data-structures"]
 
 [dependencies]
 futures = {version = "0.3.1", default-features=false}
-pin-utils =  "0.1.0-alpha.4"
-parc = {path="../parc", version = "1.0.1"}
+tokio = {version="0.2.4", features=["time"]}
+pin-utils = "0.1.0-alpha.4"
 
 [dev-dependencies]
-futures = "0.3.1"
+tokio = {version="0.2.4", features=["time", "macros", "rt-core"]}

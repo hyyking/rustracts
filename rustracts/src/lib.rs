@@ -1,66 +1,112 @@
-//! A Contract is a structure that can be invalidated or expired, on expiration the execute
-//! method is called, depending on the contract it could produce a value or not. If the contract is
-//! not valid at the time of the check it will be voided and could produce a value depending on the
-//! contract.
-//!
-//! Contracts are valid futures that can be run to completion on a reactor or awaited in an async
-//! block.
+use std::{
+    future::Future,
+    // marker::Unpin,
+    pin::Pin,
+    task::{Context, Poll},
+    time::Duration,
+};
 
-#![deny(clippy::all)]
+use futures::{
+    future::{FusedFuture, TryFuture},
+    ready,
+};
+use pin_utils::{unsafe_pinned, unsafe_unpinned};
+use tokio::time::{interval, Interval};
 
-/// Contract Trait
-pub trait Contract: ::futures::future::Future {
-    /// Check wether the contract is still valid. Always true by default.
-    fn poll_valid(&self) -> bool {
-        true
+pub struct Futures<Fut>
+where
+    Fut: TryFuture<Ok = (), Error = ()>,
+{
+    clock: Interval,
+    ticks: usize,
+    f: Option<Fut>,
+    store: Option<Fut::Ok>,
+}
+
+impl<Fut> Futures<Fut>
+where
+    Fut: TryFuture<Ok = (), Error = ()>,
+{
+    unsafe_pinned!(f: Option<Fut>);
+    unsafe_pinned!(clock: Interval);
+
+    unsafe_unpinned!(ticks: usize);
+    unsafe_unpinned!(store: Option<Fut::Ok>);
+
+    pub fn new(duration: Duration, f: Fut) -> Self {
+        Self {
+            clock: interval(duration / 4),
+            ticks: 0,
+            f: Some(f),
+            store: None,
+        }
     }
 
-    /// Produce a status of the contract on expiration.
-    fn execute(self: std::pin::Pin<&mut Self>) -> Self::Output;
-
-    /// Produce a status of the contract on cancel.
-    fn void(self: std::pin::Pin<&mut Self>) -> Self::Output;
+    // Polling for the next tick (this function is undocumented in tokio)
+    fn poll_tick(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        self.as_mut().clock().poll_tick(cx).map(|_| {
+            *self.as_mut().ticks() += 1;
+        })
+    }
 }
 
-/// Extention trait for Contracts.
-pub trait ContractExt: Contract {
-    /// Return type of `get_context`
-    type Context;
-
-    /// Get a thread-safe handle to a ContractContext.
-    fn get_context(&self) -> Result<Self::Context, ContextError>;
+impl<Fut> FusedFuture for Futures<Fut>
+where
+    Fut: TryFuture<Ok = (), Error = ()>,
+{
+    fn is_terminated(&self) -> bool {
+        self.f.is_none() | (self.ticks > 4)
+    }
 }
 
-/// Status on completion/invalidation of a contract.
-pub enum Status<R> {
-    /// Contract has successfully produced a value.
-    Completed(R),
+impl<Fut> Future for Futures<Fut>
+where
+    Fut: TryFuture<Ok = (), Error = ()>,
+{
+    type Output = Result<Fut::Ok, Fut>;
 
-    /// Contract has ended and did not produce a value.
-    Terminated,
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if self.is_terminated() {
+            if self.store.is_some() {
+                return Poll::Ready(Ok(self.store().take().unwrap()));
+            }
+            return Poll::Ready(Ok(()));
+        }
+
+        // follow through the ticks
+        ready!(self.as_mut().poll_tick(cx));
+
+        // future has produced a value, finish the contract
+        if self.store.is_some() {
+            return Poll::Pending;
+        }
+
+        match ready!(self.as_mut().f().as_pin_mut().unwrap().try_poll(cx)) {
+            Ok(value) => {
+                debug_assert!(self.as_mut().store().replace(value).is_none());
+                return Poll::Pending;
+            }
+            Err(_) => {
+                let f = unsafe { self.f().get_unchecked_mut().take().unwrap() };
+                return Poll::Ready(Err(f));
+            }
+        }
+    }
 }
 
-mod contracts;
+#[cfg(test)]
+mod test {
+    use super::*;
 
-/// Time utilities.
-pub mod time;
-
-/// ContractContext implementations.
-pub mod context;
-
-/// Parkable waker threads.
-pub mod park;
-
-/// Trait that defines a valid context for a contract.
-pub use context::{ContextError, ContractContext};
-
-/// Duration based contract produces a value at a point in the future using the available context if it
-/// has not been voided before.
-pub use crate::contracts::FuturesContract;
-
-/// Permanent contract that produces a value when it is voided by it's context.
-pub use crate::contracts::OnKillContract;
-
-/// Duration based contract produces a value at a point in the future if it has not been voided and
-/// secondary context has been realized.
-pub use crate::contracts::OptionContract;
+    #[tokio::test]
+    async fn dev() {
+        let _: Result<(), _> = Futures::new(Duration::from_secs(4), async {
+            if 10 > 3 {
+                Ok(())
+            } else {
+                Err(())
+            }
+        })
+        .await;
+    }
+}
