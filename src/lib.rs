@@ -22,13 +22,21 @@ pub trait ContractExt: TryFuture {
     {
         Core::new(max, duration, self)
     }
-
+    /*
+        #[inline]
+        fn as_futures(self, duration: Duration) -> Futures<Self>
+        where
+            Self: Sized,
+        {
+            self.with_core(4, duration).as_futures()
+        }
+    */
     #[inline]
     fn as_futures(self, duration: Duration) -> Futures<Self>
     where
         Self: Sized,
     {
-        self.with_core(4, duration).as_futures()
+        Futures::new(duration, self)
     }
 }
 

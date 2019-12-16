@@ -1,104 +1,95 @@
 use ::core::{
     future::Future,
+    marker::Unpin,
     pin::Pin,
     task::{Context, Poll},
+    time::Duration,
 };
 
-use crate::{core::ContractCore, ContractResult};
+use crate::ContractResult;
 
 use ::futures::{
     future::{Either, FusedFuture, TryFuture},
     ready,
-    stream::Stream,
 };
 use ::pin_utils::{unsafe_pinned, unsafe_unpinned};
+use ::tokio::time::{delay_for, Delay};
 
 #[derive(Debug)]
-pub struct Futures<Fut>
-where
-    Fut: TryFuture,
-{
-    core: ContractCore,
+pub struct Futures<Fut: TryFuture> {
+    core: Delay,
 
     f: Option<Fut>,
     store: Option<Fut::Ok>,
 }
-impl<Fut> Futures<Fut>
-where
-    Fut: TryFuture,
-{
-    unsafe_unpinned!(f: Option<Fut>);
-    unsafe_pinned!(core: ContractCore);
+
+impl<Fut: TryFuture + Unpin> Unpin for Futures<Fut> {}
+
+impl<Fut: TryFuture> Futures<Fut> {
+    unsafe_pinned!(f: Option<Fut>);
+    unsafe_pinned!(core: Delay);
 
     unsafe_unpinned!(store: Option<Fut::Ok>);
 
-    pub(super) fn new(core: ContractCore, f: Fut) -> Self {
-        let f = Some(f);
+    pub(super) fn new(duration: Duration, f: Fut) -> Self {
         Self {
-            core,
-            f,
+            core: delay_for(duration),
+            f: Some(f),
             store: None,
         }
     }
-    pub fn into_inner(self) -> Option<Fut> {
-        self.f
+    pub fn into_inner(self) -> Fut {
+        self.f.expect("future has already returned")
+    }
+    fn poll_and_store(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Result<bool, Fut::Error> {
+        if let Some(f) = self.as_mut().f().as_pin_mut() {
+            match f.try_poll(cx) {
+                Poll::Ready(Err(err)) => return Err(err),
+                Poll::Ready(Ok(ok)) => {
+                    if let None = self.store {
+                        self.as_mut().store().replace(ok);
+                        unsafe { drop(self.f().get_unchecked_mut().take()) }
+                    }
+                    return Ok(true);
+                }
+                _ => return Ok(false),
+            }
+        };
+        Ok(false)
     }
 }
-impl<Fut> FusedFuture for Futures<Fut>
-where
-    Fut: TryFuture,
-{
+impl<Fut: TryFuture> FusedFuture for Futures<Fut> {
     fn is_terminated(&self) -> bool {
         self.f.is_none()
     }
 }
-impl<Fut> Future for Futures<Fut>
-where
-    Fut: TryFuture,
-{
+impl<Fut: TryFuture> Future for Futures<Fut> {
     type Output = ContractResult<Fut>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // poll core and trigger on end (core will initiate delays after first poll)
-        if let None = ready!(self.as_mut().core().poll_next(cx)) {
-            // if the store valued is there return it instead
-            if let Some(s) = self.as_mut().store().take() {
-                return Poll::Ready(Ok(Either::Left(s)));
-            }
-
-            // if the future is stil there (meaning the store is empty since on reception we empty the
-            // future slot) try to poll it one last time.
-            if let Some(mut f) = self.f().take() {
-                let p = unsafe { Pin::new_unchecked(&mut f).try_poll(cx) };
-                return match p {
-                    Poll::Ready(Ok(ok)) => Poll::Ready(Ok(Either::Left(ok))),
-                    Poll::Ready(Err(err)) => Poll::Ready(Err(err)),
-                    Poll::Pending => Poll::Ready(Ok(Either::Right(f))),
-                };
-            }
-            // stream has ended so go in pending state
-            return Poll::Pending;
+        if let Err(e) = self.as_mut().poll_and_store(cx) {
+            return Poll::Ready(Err(e));
         }
 
-        // future has produced a value, wake to trigger next core tick
-        if self.store.is_some() {
-            cx.waker().wake_by_ref();
-            return Poll::Pending;
-        }
+        ready!(self.as_mut().core().poll(cx));
 
-        // on core tick poll the future to check for an error
-        let fut = self.as_mut().f().as_mut().unwrap();
-        match ready!(unsafe { Pin::new_unchecked(fut) }.try_poll(cx)) {
-            Ok(value) => {
-                debug_assert!(self.as_mut().store().replace(value).is_none());
-                cx.waker().wake_by_ref();
-                return Poll::Pending;
+        let val = if let Some(value) = self.as_mut().store().take() {
+            Either::Left(value)
+        } else {
+            match self.as_mut().poll_and_store(cx) {
+                Ok(true) => Either::Left(self.store().take().unwrap()),
+                Ok(false) => {
+                    if let Some(fut) = unsafe { self.as_mut().f().get_unchecked_mut().take() } {
+                        Either::Right(fut)
+                    } else {
+                        debug_assert!(self.is_terminated());
+                        return Poll::Pending;
+                    }
+                }
+                Err(e) => return Poll::Ready(Err(e)),
             }
-            Err(e) => {
-                let _ = self.f().take().unwrap();
-                return Poll::Ready(Err(e));
-            }
-        }
+        };
+        Poll::Ready(Ok(val))
     }
 }
 
@@ -113,18 +104,13 @@ mod controled {
 
         let mut f = task::spawn(async { Result::<bool, ()>::Ok(true) }.as_futures(s(4)));
 
-        // simulate the ticks
-        f.enter(|_, f| unsafe {
-            f.get_unchecked_mut().core.tick += 4;
-        });
-        time::advance(s(4)).await;
+        time::advance(ms(4001)).await;
 
         match unwrap_ready(f.poll()) {
             Ok(Either::Left(tmd)) => assert!(tmd),
             _ => panic!("expected completed contract"),
         }
     }
-
     #[tokio::test]
     async fn err_canceled() {
         time::pause();
@@ -134,7 +120,6 @@ mod controled {
 
         assert!(unwrap_ready(f.poll()).is_err());
     }
-
     #[tokio::test]
     async fn err_timedout() {
         time::pause();
@@ -147,11 +132,7 @@ mod controled {
                 .as_futures(s(4)),
         );
 
-        // simulate the ticks
-        f.enter(|_, f| unsafe {
-            f.get_unchecked_mut().core.tick += 4;
-        });
-        time::advance(s(4)).await;
+        time::advance(ms(4001)).await;
 
         // right variant so the contract didn't receive the value
         match unwrap_ready(f.poll()) {
@@ -159,31 +140,54 @@ mod controled {
             _ => panic!("expected timed out future"),
         }
     }
-    /*
-        #[tokio::test]
-        async fn last_second() {
-            time::pause();
+    #[tokio::test]
+    async fn poll_after_timedout() {
+        time::pause();
 
-            // real test
-            let fut = async {
-                time::delay_until(time::Instant::now() + ms(4000)).await;
+        let mut f = task::spawn(
+            async {
+                time::delay_for(s(5)).await;
                 Result::<bool, ()>::Ok(true)
-            };
-            let mut f = task::spawn(fut.as_futures(ms(4000)));
-
-            drop(f.poll());
-            f.enter(|_, f| unsafe {
-                f.get_unchecked_mut().core.tick += 4;
-            });
-            time::advance(ms(4000)).await;
-
-            match unwrap_ready(f.poll()) {
-                Ok(Either::Left(tmd)) => assert!(tmd),
-                Err(_) => panic!("unexpected error"),
-                _ => panic!("expected completed contract"),
             }
+                .as_futures(s(4)),
+        );
+
+        time::advance(ms(4001)).await;
+
+        // right variant so the contract didn't receive the value
+        match unwrap_ready(f.poll()) {
+            Ok(Either::Right(tmd)) => assert_pending!(task::spawn(tmd).poll()), // work is still being done
+            _ => panic!("expected timed out future"),
         }
-    */
+
+        use ::futures::future::FusedFuture;
+        use std::task::Poll;
+        if let Poll::Ready(_) = f.poll() {
+            assert!(f.enter(|_, f| f.is_terminated()));
+            panic!("future should return pending after first successful poll")
+        }
+    }
+    #[tokio::test]
+    async fn last_second() {
+        time::pause();
+
+        // real test
+        let mut f = task::spawn(
+            async {
+                time::delay_for(ms(4000)).await;
+                Result::<bool, ()>::Ok(true)
+            }
+                .as_futures(ms(4000)),
+        );
+        drop(f.poll());
+        time::advance(ms(4001)).await;
+
+        match unwrap_ready(f.poll()) {
+            Ok(Either::Left(tmd)) => assert!(tmd),
+            Err(_) => panic!("unexpected error"),
+            _ => panic!("expected completed contract"),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -199,14 +203,12 @@ mod realtime {
             _ => panic!("expected completed contract"),
         }
     }
-
     #[tokio::test]
     async fn err_canceled() {
         let f = tokio::spawn(async { Result::<(), bool>::Err(true) }.as_futures(s(4)));
 
         assert!(f.await.unwrap().is_err());
     }
-
     #[tokio::test]
     async fn err_timedout() {
         let task = tokio::spawn(async {
@@ -225,16 +227,12 @@ mod realtime {
     async fn last_second() {
         let f = tokio::spawn(
             async {
-                println!("BEFORE DELAY {:?}", time::Instant::now());
-                time::delay_until(time::Instant::now() + ms(4000)).await;
-                println!("AFTER DELAY {:?}", time::Instant::now());
+                time::delay_for(ms(4000)).await;
                 Result::<bool, ()>::Ok(true)
             }
-                .as_futures(ms(5000)),
+                .as_futures(ms(4000)),
         );
-        let f = f.await.unwrap();
-        println!("FUT AWAITED {:?}", time::Instant::now());
-        match f {
+        match f.await.unwrap() {
             Ok(Either::Left(tmd)) => assert!(tmd),
             Err(_) => panic!("unexpected error"),
             _ => panic!("expected completed contract"),

@@ -4,8 +4,6 @@ use std::{
     time::Duration,
 };
 
-use crate::Futures;
-
 use futures::{
     future::{Future, TryFuture},
     ready,
@@ -24,9 +22,6 @@ impl<Fut: TryFuture> Core<Fut> {
             core: ContractCore::new(bound, duration),
             f,
         }
-    }
-    pub fn as_futures(self) -> Futures<Fut> {
-        Futures::new(self.core, self.f)
     }
 }
 
