@@ -380,7 +380,7 @@ impl<T> LockWeak<T> {
     }
 }
 
-unsafe impl<T> Send for LockWeak<T> {}
+unsafe impl<T: Sync> Send for LockWeak<T> {}
 
 /// Unclonable owned reference to a [`ParentArc`](struct.ParentArc.html).
 ///
